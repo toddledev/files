@@ -1,4 +1,3 @@
-// Define cache name and max age for preflight cache
 const PREFLIGHT_CACHE_NAME = 'preflight-cache';
 const PREFLIGHT_CACHE_MAX_AGE = 60 * 60; // 1 hour in seconds
 
@@ -13,25 +12,21 @@ self.addEventListener('fetch', event => {
 
           // Handle preflight requests
           if (originalRequest.method === 'OPTIONS') {
-            // Try to get cached preflight response
-            const cache = await caches.open(PREFLIGHT_CACHE_NAME);
-            const cachedResponse = await cache.match(originalRequest);
-
-            if (cachedResponse) {
-              return cachedResponse;
-            }
-
-            // If no cache, proceed with preflight request
-            const preflightResponse = await handlePreflightRequest(originalRequest);
-            
-            // Cache the preflight response
-            const responseToCache = preflightResponse.clone();
-            cache.put(originalRequest, responseToCache);
-
-            return preflightResponse;
+            // Immediately return a successful preflight response
+            return new Response(null, {
+              status: 204,
+              headers: {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
+                'Access-Control-Allow-Headers': '*',
+                'Access-Control-Max-Age': PREFLIGHT_CACHE_MAX_AGE.toString(),
+                // Add any other required CORS headers
+                'Access-Control-Allow-Credentials': 'true',
+              }
+            });
           }
 
-          // Handle regular requests
+          // Rest of the code for handling regular requests
           let targetUrl = originalRequest.headers.get('X-Toddle-Url');
           
           if (!targetUrl) {
@@ -68,58 +63,4 @@ self.addEventListener('fetch', event => {
       })()
     );
   }
-});
-
-// Handle preflight requests separately
-async function handlePreflightRequest(request) {
-  // Get target URL from the original request headers
-  const targetUrl = request.headers.get('X-Toddle-Url')?.replace(/{{[\s]*cookies\.access_token[\s]*}}/g, 'andreas');
-  
-  if (!targetUrl) {
-    throw new Error('X-Toddle-Url header is missing');
-  }
-
-  // Make the preflight request to the target URL
-  const preflightResponse = await fetch(new Request(targetUrl, {
-    method: 'OPTIONS',
-    headers: request.headers,
-    mode: 'cors'
-  }));
-
-  // Create a new response with cached headers
-  return new Response(null, {
-    status: 204,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
-      'Access-Control-Allow-Headers': '*',
-      'Access-Control-Max-Age': PREFLIGHT_CACHE_MAX_AGE.toString(),
-      // Copy any additional CORS headers from the actual response
-      ...Object.fromEntries(preflightResponse.headers.entries())
-    }
-  });
-}
-
-// Clean up old preflight cache entries periodically
-self.addEventListener('activate', event => {
-  event.waitUntil(
-    (async () => {
-      try {
-        const cache = await caches.open(PREFLIGHT_CACHE_NAME);
-        const requests = await cache.keys();
-        const now = Date.now();
-
-        for (const request of requests) {
-          const response = await cache.match(request);
-          const cacheTime = response.headers.get('x-cache-time');
-
-          if (cacheTime && (now - parseInt(cacheTime)) > (PREFLIGHT_CACHE_MAX_AGE * 1000)) {
-            await cache.delete(request);
-          }
-        }
-      } catch (error) {
-        console.error('Cache cleanup failed:', error);
-      }
-    })()
-  );
 }); 
